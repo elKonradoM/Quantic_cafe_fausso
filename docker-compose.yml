@@ -1,0 +1,17 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:15
+    container_name: cafe_fausse_db
+    environment:
+      POSTGRES_DB: cafe_fausse
+      POSTGRES_USER: cafe
+      POSTGRES_PASSWORD: cafe
+    ports:
+      - "55432:5432"
+    volumes:
+      - cafe_fausse_pg:/var/lib/postgresql/data
+
+volumes:
+  cafe_fausse_pg:
