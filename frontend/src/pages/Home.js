@@ -8,9 +8,11 @@ export default function Home() {
       <Hero />
 
       <section className="section">
-        <div className="sectionHeader">
-          <h2>Tonight’s Mood</h2>
-          <p>Elegant, warm, and slightly dramatic (like French cinema, but with better lighting).</p>
+        <div className="card" style={{ padding: 16, marginBottom: 18 }}>
+          <h2 style={{ margin: 0, fontSize: 20 }}>Tonight’s Mood</h2>
+          <p className="help" style={{ margin: "8px 0 0" }}>
+            Elegant, warm, and slightly dramatic (like French cinema, but with better lighting).
+          </p>
         </div>
 
         <div className="grid2">
@@ -20,7 +22,7 @@ export default function Home() {
               Seasonal ingredients, classic technique, modern plating.
               We keep the rules… and occasionally bend them for fun.
             </p>
-            <Link to="/about" className="btn">Meet the Team</Link>
+            <Link to="/about" className="btn btnGold">Meet the Team</Link>
           </div>
 
           <div className="card" style={{ padding: 16 }}>
@@ -29,7 +31,7 @@ export default function Home() {
               Pick a time slot, party size, and your contact details.
               We’ll randomly assign a table (we have 30 of them).
             </p>
-            <Link to="/reservations" className="btn btnGold">Book a Table</Link>
+            <Link to="/reservations" className="btn btnGold">Go to Reservations</Link>
           </div>
         </div>
       </section>
