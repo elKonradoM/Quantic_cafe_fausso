@@ -1,0 +1,21 @@
+// Put images into: frontend/public/images/
+// and keep names as below (or update these paths).
+
+export const GALLERY = [
+  { id: 1, title: "Special Event Night", src: "/images/gallery-special-event.webp" },
+  { id: 2, title: "Cafe Interior", src: "/images/gallery-cafe-interior.webp" },
+  { id: 3, title: "Ribeye Steak", src: "/images/gallery-ribeye-steak.webp" },
+  { id: 4, title: "Main Dining Room", src: "/images/home-cafe-fausse.webp" }
+];
+
+export const AWARDS = [
+  "Michelin Guide Recommended (2025)",
+  "Best New Bistro – Paris Digest",
+  "Top 10 Romantic Dining – Citylights"
+];
+
+export const REVIEWS = [
+  { who: "A. Martin", text: "Impeccable service and an unreal ribeye. 10/10 would overeat again." },
+  { who: "S. Nguyen", text: "The atmosphere feels like a movie. Desserts are dangerous." },
+  { who: "K. Dubois", text: "Perfect for a date night. The duck confit is the star." }
+];

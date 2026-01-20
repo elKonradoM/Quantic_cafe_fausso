@@ -1,0 +1,166 @@
+import random
+import re
+
+from flask import Blueprint, jsonify, request
+
+from extensions import db
+from models import Customer, NewsletterSubscription, Reservation
+
+api = Blueprint("api", __name__)
+
+
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _clean_str(v):
+    if v is None:
+        return ""
+    return str(v).strip()
+
+
+def _norm_email(v):
+    return _clean_str(v).lower()
+
+
+def _pick_first(data, keys):
+    for k in keys:
+        if k in data and data.get(k) is not None:
+            return data.get(k)
+    return None
+
+
+@api.get("/health")
+def health():
+    return jsonify({"ok": True})
+
+
+@api.post("/reservations")
+def create_reservation():
+    data = request.get_json(silent=True) or {}
+
+    time_slot = _clean_str(data.get("timeSlot"))
+    guests = data.get("guests")
+    name = _clean_str(data.get("name"))
+    email = _norm_email(data.get("email"))
+    phone = _clean_str(data.get("phone")) or None
+
+    if not time_slot:
+        return jsonify({"ok": False, "message": "Time slot is required."}), 400
+
+    try:
+        guests_i = int(guests)
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "message": "Guests must be a number."}), 400
+
+    if guests_i <= 0:
+        return jsonify({"ok": False, "message": "Guests must be positive."}), 400
+
+    if not name:
+        return jsonify({"ok": False, "message": "Name is required."}), 400
+
+    if not EMAIL_RE.match(email or ""):
+        return jsonify({"ok": False, "message": "Email is invalid."}), 400
+
+    # Count existing reservations at this time slot
+    count = Reservation.query.filter_by(time_slot=time_slot).count()
+    if count >= 30:
+        return jsonify({"ok": False, "message": "This slot is fully booked. Please choose another time."}), 409
+
+    existing_tables = {r.table_number for r in Reservation.query.filter_by(time_slot=time_slot).all()}
+    available = [i for i in range(1, 31) if i not in existing_tables]
+    table_number = random.choice(available)
+
+    reservation = Reservation(
+        time_slot=time_slot,
+        guests=guests_i,
+        name=name,
+        email=email,
+        phone=phone,
+        table_number=table_number,
+    )
+
+    # Upsert customer record (best-effort)
+    customer = Customer.query.filter_by(email=email).first()
+    if customer is None:
+        customer = Customer(name=name, email=email, phone=phone, newsletter_signup=False)
+        db.session.add(customer)
+    else:
+        # keep latest known details
+        customer.name = customer.name or name
+        customer.phone = customer.phone or phone
+
+    db.session.add(reservation)
+    db.session.commit()
+
+    return jsonify({
+        "ok": True,
+        "message": "Reservation saved.",
+        "tableNumber": table_number,
+    })
+
+
+@api.get("/subscribers")
+def list_subscribers():
+    subs = NewsletterSubscription.query.order_by(NewsletterSubscription.created_at.desc()).all()
+    return jsonify({
+        "ok": True,
+        "subscribers": [
+            {
+                "firstName": s.first_name,
+                "lastName": s.last_name,
+                "email": s.email,
+                "createdAt": s.created_at.isoformat() + "Z",
+            }
+            for s in subs
+        ],
+    })
+
+
+@api.post("/newsletter")
+def newsletter_signup():
+    data = request.get_json(silent=True) or {}
+
+    first_name = _clean_str(_pick_first(data, ["firstName", "first_name", "name", "first"]))
+    last_name = _clean_str(_pick_first(data, ["lastName", "last_name", "surname", "last"]))
+    email = _norm_email(_pick_first(data, ["email", "Email"]))
+
+    if not first_name:
+        return jsonify({"ok": False, "message": "First name is required."}), 400
+
+    if not last_name:
+        return jsonify({"ok": False, "message": "Last name is required."}), 400
+
+    if not EMAIL_RE.match(email or ""):
+        return jsonify({"ok": False, "message": "Email is invalid."}), 400
+
+    # Upsert newsletter subscription
+    sub = NewsletterSubscription.query.filter_by(email=email).first()
+    if sub is None:
+        sub = NewsletterSubscription(email=email, first_name=first_name, last_name=last_name)
+        db.session.add(sub)
+    else:
+        sub.first_name = first_name
+        sub.last_name = last_name
+
+    # Also track in Customer table (useful for CRM-ish future features)
+    full_name = f"{first_name} {last_name}".strip()
+    customer = Customer.query.filter_by(email=email).first()
+    if customer is None:
+        customer = Customer(
+            name=full_name,
+            first_name=first_name,
+            last_name=last_name,
+            email=email,
+            phone=None,
+            newsletter_signup=True,
+        )
+        db.session.add(customer)
+    else:
+        customer.newsletter_signup = True
+        customer.first_name = first_name
+        customer.last_name = last_name
+        customer.name = customer.name or full_name
+
+    db.session.commit()
+
+    return jsonify({"ok": True, "message": "Subscribed to the newsletter."})

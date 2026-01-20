@@ -1,0 +1,89 @@
+import os
+
+from dotenv import load_dotenv
+from flask import Flask
+from flask_cors import CORS
+from sqlalchemy import inspect, text
+
+from config import Config
+from extensions import db
+from routes import api
+
+
+def _ensure_schema():
+    """Idempotent, lightweight schema upgrades.
+
+    This project keeps dependencies minimal (no Alembic). When the models
+    gain new columns, we apply safe ALTER TABLE statements at startup.
+    """
+
+    engine = db.engine
+
+    def add_column(table: str, column: str, coltype_sql: str) -> None:
+        try:
+            insp = inspect(engine)
+            existing = {c["name"] for c in insp.get_columns(table)}
+        except Exception:
+            return
+
+        if column in existing:
+            return
+
+        # Works for SQLite and most Postgres-compatible dialects.
+        try:
+            db.session.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {coltype_sql}"))
+            return
+        except Exception:
+            pass
+
+        # Fallback (quoted identifiers).
+        try:
+            db.session.execute(text(f'ALTER TABLE "{table}" ADD COLUMN "{column}" {coltype_sql}'))
+        except Exception:
+            pass
+
+    # Newsletter: add surname support.
+    add_column("newsletter_subscriptions", "first_name", "VARCHAR(120)")
+    add_column("newsletter_subscriptions", "last_name", "VARCHAR(120)")
+
+    # Customer: store structured names when newsletter signs up.
+    add_column("customers", "first_name", "VARCHAR(120)")
+    add_column("customers", "last_name", "VARCHAR(120)")
+
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+
+def create_app():
+    load_dotenv()
+
+    app = Flask(__name__)
+    app.config.from_object(Config)
+
+    CORS(app)
+
+    db.init_app(app)
+    app.register_blueprint(api, url_prefix="/api")
+
+    with app.app_context():
+        db.create_all()
+        _ensure_schema()
+
+    @app.get("/health")
+    def health():
+        return {"ok": True}
+
+    return app
+
+
+app = create_app()
+
+
+if __name__ == "__main__":
+    app.run(
+        host=os.getenv("FLASK_RUN_HOST", "0.0.0.0"),
+        port=int(os.getenv("PORT", "5000")),
+        debug=True,
+    )

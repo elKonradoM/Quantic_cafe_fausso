@@ -1,0 +1,52 @@
+import React, { useMemo, useState } from "react";
+import Lightbox from "../components/Lightbox";
+import { galleryImages } from "../data/gallery";
+
+export default function Gallery() {
+  const [selected, setSelected] = useState(null);
+
+  // jeżeli Lightbox oczekuje tablicy - dajemy mu galleryImages
+  const images = useMemo(() => galleryImages, []);
+
+  return (
+    <main className="page">
+      <section className="container">
+        <h1>Gallery</h1>
+
+        <div className="gallery-grid">
+          {images.map((img, idx) => (
+            <button
+              key={img.id || idx}
+              className="gallery-card"
+              type="button"
+              onClick={() => setSelected(idx)}
+              aria-label={img.title ? `Open image: ${img.title}` : "Open image"}
+            >
+              <img
+                className="gallery-thumb"
+                src={img.src}
+                alt={img.alt || img.title || "Gallery image"}
+                loading="lazy"
+              />
+
+              <div className="gallery-meta">
+                <div className="gallery-title">{img.title}</div>
+                {img.caption ? (
+                  <div className="gallery-caption">{img.caption}</div>
+                ) : null}
+              </div>
+            </button>
+          ))}
+        </div>
+
+        {selected !== null && (
+          <Lightbox
+            images={images}
+            startIndex={selected}
+            onClose={() => setSelected(null)}
+          />
+        )}
+      </section>
+    </main>
+  );
+}

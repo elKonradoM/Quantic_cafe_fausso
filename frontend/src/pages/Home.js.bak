@@ -1,0 +1,136 @@
+import React, { useState } from "react";
+import { Link } from "react-router-dom";
+import Hero from "../components/Hero";
+import { postJson } from "../api";
+
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+export default function Home() {
+  const [nl, setNl] = useState({ name: "", email: "" });
+  const [nlLoading, setNlLoading] = useState(false);
+  const [nlResult, setNlResult] = useState(null);
+
+  function setNlField(k, v) {
+    setNl((s) => ({ ...s, [k]: v }));
+  }
+
+  async function submitNewsletter(e) {
+    e.preventDefault();
+    setNlResult(null);
+
+    const name = nl.name.trim();
+    const email = nl.email.trim().toLowerCase();
+
+    if (!name) {
+      setNlResult({ ok: false, message: "Name is required." });
+      return;
+    }
+    if (!EMAIL_RE.test(email)) {
+      setNlResult({ ok: false, message: "Please enter a valid email." });
+      return;
+    }
+
+    setNlLoading(true);
+    const res = await postJson("/api/newsletter", { name, email });
+    setNlLoading(false);
+
+    if (res.ok && res.data?.ok) {
+      setNlResult({ ok: true, message: res.data.message || "Subscribed!" });
+      setNl({ name: "", email: "" });
+    } else {
+      setNlResult({ ok: false, message: res.data?.message || "Subscription failed." });
+    }
+  }
+
+  return (
+    <div className="container">
+      <Hero />
+
+      <section className="section">
+        <div className="sectionHeader">
+          <h2>Tonight’s Mood</h2>
+          <p>Elegant, warm, and slightly dramatic (like French cinema, but with better lighting).</p>
+        </div>
+
+        <div className="grid2">
+          <div className="card" style={{ padding: 16 }}>
+            <h3 style={{ marginTop: 0 }}>Chef’s Philosophy</h3>
+            <p className="help">
+              Seasonal ingredients, classic technique, modern plating.
+              We keep the rules… and occasionally bend them for fun.
+            </p>
+            <Link to="/about" className="btn">Meet the Team</Link>
+          </div>
+
+          <div className="card" style={{ padding: 16 }}>
+            <h3 style={{ marginTop: 0 }}>Reserve in 30 seconds</h3>
+            <p className="help">
+              Pick a time slot, party size, and your contact details.
+              We’ll randomly assign a table (we have 30 of them).
+            </p>
+            <Link to="/reservations" className="btn btnGold">Book a Table</Link>
+          </div>
+        </div>
+      </section>
+
+      <section className="section">
+        <div className="sectionHeader">
+          <h2>Newsletter</h2>
+          <p>One tasteful email at a time. No spam, just vibes.</p>
+        </div>
+
+        <div className="grid2">
+          <form className="card form" onSubmit={submitNewsletter}>
+            <label className="label">
+              Name
+              <input
+                className="input"
+                value={nl.name}
+                onChange={(e) => setNlField("name", e.target.value)}
+                placeholder="Your name"
+                required
+              />
+            </label>
+
+            <label className="label">
+              Email
+              <input
+                className="input"
+                value={nl.email}
+                onChange={(e) => setNlField("email", e.target.value)}
+                placeholder="you@example.com"
+                required
+              />
+            </label>
+
+            <button className="btn btnGold" disabled={nlLoading}>
+              {nlLoading ? "Subscribing..." : "Subscribe"}
+            </button>
+
+            {nlResult && (
+              <div className="alert">
+                {nlResult.ok ? (
+                  <>
+                    <b>Done.</b> {nlResult.message}
+                  </>
+                ) : (
+                  <>
+                    <b>Oops.</b> {nlResult.message}
+                  </>
+                )}
+              </div>
+            )}
+          </form>
+
+          <div className="card" style={{ padding: 16 }}>
+            <h3 style={{ marginTop: 0 }}>What you’ll get</h3>
+            <p className="help">
+              Seasonal menu drops, special event announcements, and occasional chef mischief.
+            </p>
+            <div className="alert">Pro tip: our dessert previews are a known productivity hazard.</div>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}

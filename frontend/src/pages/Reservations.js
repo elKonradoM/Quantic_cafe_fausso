@@ -1,0 +1,172 @@
+import React, { useRef, useState } from "react";
+import { postJson } from "../api";
+
+export default function Reservations() {
+  const dtRef = useRef(null);
+
+  const [form, setForm] = useState({
+    timeSlot: "",
+    guests: 2,
+    name: "",
+    email: "",
+    phone: ""
+  });
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState(null);
+
+  function setField(k, v) {
+    setForm((s) => ({ ...s, [k]: v }));
+  }
+
+  function validate() {
+    if (!form.timeSlot) return "Please choose a time slot.";
+    if (!Number.isInteger(Number(form.guests)) || Number(form.guests) <= 0) return "Guests must be a positive number.";
+    if (!form.name.trim()) return "Name is required.";
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email.trim().toLowerCase())) return "Email is invalid.";
+    return null;
+  }
+
+  async function submit(e) {
+    e.preventDefault();
+    setResult(null);
+
+    const err = validate();
+    if (err) {
+      setResult({ ok: false, message: err });
+      return;
+    }
+
+    setLoading(true);
+    const payload = {
+      timeSlot: form.timeSlot,
+      guests: Number(form.guests),
+      name: form.name.trim(),
+      email: form.email.trim().toLowerCase(),
+      phone: form.phone.trim() || null
+    };
+
+    const res = await postJson("/api/reservations", payload);
+    setLoading(false);
+
+    if (res.ok && res.data?.ok) {
+      setResult({ ok: true, message: res.data.message, tableNumber: res.data.tableNumber });
+    } else {
+      setResult({ ok: false, message: res.data?.message || "Reservation failed." });
+    }
+  }
+
+  function openPicker() {
+    const el = dtRef.current;
+    if (!el) return;
+    // Chrome/Edge: otwiera natywnego pickera programowo
+    if (typeof el.showPicker === "function") el.showPicker();
+    else el.focus(); // fallback (Safari/Firefox)
+  }
+
+  return (
+    <div className="container reservations">
+      <div className="sectionHeader">
+        <h2>Reservations</h2>
+        <p>We’ll confirm a table number if the time slot isn’t fully booked.</p>
+      </div>
+
+      <div className="grid2">
+        <form className="card form" onSubmit={submit}>
+          <div className="row2">
+            <label className="label">
+              Time Slot
+              <span className="dtWrap">
+                <input
+                  ref={dtRef}
+                  className="input dtInput"
+                  type="datetime-local"
+                  value={form.timeSlot}
+                  onChange={(e) => setField("timeSlot", e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="dtBtn"
+                  aria-label="Open calendar"
+                  onClick={openPicker}
+                />
+              </span>
+            </label>
+
+            <label className="label">
+              Guests
+              <input
+                className="input"
+                type="number"
+                min="1"
+                value={form.guests}
+                onChange={(e) => setField("guests", Number(e.target.value))}
+              />
+            </label>
+          </div>
+
+          <div className="row2">
+            <label className="label">
+              Name
+              <input
+                className="input"
+                value={form.name}
+                onChange={(e) => setField("name", e.target.value)}
+                placeholder="Your name"
+              />
+            </label>
+            <label className="label">
+              Email
+              <input
+                className="input"
+                value={form.email}
+                onChange={(e) => setField("email", e.target.value)}
+                placeholder="you@example.com"
+              />
+            </label>
+          </div>
+
+          <label className="label">
+            Phone (optional)
+            <input
+              className="input"
+              value={form.phone}
+              onChange={(e) => setField("phone", e.target.value)}
+              placeholder="+33 ..."
+            />
+          </label>
+
+          <button className="btn btnGold" disabled={loading}>
+            {loading ? "Booking..." : "Confirm Reservation"}
+          </button>
+
+          {result && (
+            <div className="alert">
+              {result.ok ? (
+                <>
+                  <b>Confirmed.</b> {result.message}<br />
+                  <span className="help">Assigned table: <b>{result.tableNumber}</b></span>
+                </>
+              ) : (
+                <>
+                  <b>Not confirmed.</b> {result.message}
+                </>
+              )}
+            </div>
+          )}
+        </form>
+
+        <div className="card" style={{ padding: 16 }}>
+          <h3 style={{ marginTop: 0 }}>How it works</h3>
+          <p className="help">
+            For each time slot, we have <b>30 tables</b>. The server checks which tables are already taken,
+            randomly picks one from the remaining pool, and saves the reservation.
+          </p>
+          <p className="help">
+            If a slot is fully booked, you’ll get a message to choose a different time.
+          </p>
+          <div className="alert">Pro tip: early slots are calmer. Late slots have better gossip.</div>
+        </div>
+      </div>
+    </div>
+  );
+}
