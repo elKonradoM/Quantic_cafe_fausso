@@ -268,3 +268,75 @@ input[type="datetime-local"] {
 .reservations .dtBtn:hover{
   background-color: rgba(255,255,255,.06);
 }
+
+/* ---------------------------------------------------------
+   Reservations: Custom time dropdown (replaces native <select>)
+   --------------------------------------------------------- */
+.reservations .timeDropdown{
+  position: relative;
+  width: 100%;
+}
+
+.reservations .timeBtn{
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  text-align: left;
+}
+
+.reservations .timeBtn:after{
+  content: "▾";
+  color: var(--muted);
+  margin-left: 10px;
+  font-size: 12px;
+}
+
+.reservations .timeMenu{
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 9999;
+
+  background: #000;
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+
+  max-height: 280px;
+  overflow: auto;
+  padding: 6px;
+}
+
+.reservations .timeOption{
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  padding: 10px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.reservations .timeOption:hover{
+  background: rgba(255,255,255,.08);
+}
+
+.reservations .timeOption.active{
+  background: rgba(215,181,109,.18);
+  border: 1px solid rgba(215,181,109,.35);
+}
+
+.reservations .timeMenu::-webkit-scrollbar{
+  width: 10px;
+}
+.reservations .timeMenu::-webkit-scrollbar-thumb{
+  background: rgba(255,255,255,.12);
+  border-radius: 20px;
+}
+.reservations .timeMenu::-webkit-scrollbar-track{
+  background: rgba(255,255,255,.05);
+}
