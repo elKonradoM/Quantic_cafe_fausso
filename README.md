@@ -7,7 +7,8 @@ University project on backend/front creation for a cafe
 This repo contains a simple full-stack web app:
 - Frontend: Create React App + React Router
 - Backend: Flask REST API (JSON)
-- Database: PostgreSQL (Docker)
+- Database: PostgreSQL (Docker), docker-compose.yml and .env contains config of Postgres listening on port 55432
+
 
 ## 1) Start Postgres
 
@@ -21,8 +22,11 @@ docker compose up -d
 cd backend
 cp .env.example .env
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
+# Windows: .venv\Scripts\activate
+# macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
+# Windows: copy .env.example .env   
+# macOS/Linux: cp .env.example .env  
 
 # The backend now auto-creates tables on startup (handy for `flask run`).
 # If you ever want to (re)create tables explicitly, you can still run:
@@ -36,7 +40,8 @@ Health check: `GET http://localhost:5000/api/health`
 ## 3) Frontend (Create React App)
 
 ```bash
-cd frontend
+cd ../frontend
+npm install
 npm install
 npm start
 ```
@@ -46,4 +51,9 @@ App: http://localhost:3000
 ## Images
 
 Place images in `frontend/public/images/` and keep names used in `frontend/src/data/gallery.js`.
+
+
+
+
+
 

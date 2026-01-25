@@ -1,6 +1,7 @@
 from datetime import datetime
 from extensions import db
 
+
 class Customer(db.Model):
     __tablename__ = "customers"
 
@@ -39,11 +40,3 @@ class Reservation(db.Model):
     __table_args__ = (
         db.UniqueConstraint("time_slot", "table_number", name="uq_reservation_time_table"),
     )
-
-
-class NewsletterSubscription(db.Model):
-    __tablename__ = "newsletter_subscriptions"
-
-    id = db.Column(db.Integer, primary_key=True)
-    email = db.Column(db.String(320), nullable=False, unique=True, index=True)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
