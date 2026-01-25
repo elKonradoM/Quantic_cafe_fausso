@@ -22,11 +22,13 @@ docker compose up -d
 cd backend
 cp .env.example .env
 python -m venv .venv
-# Windows: .venv\Scripts\activate
-# macOS/Linux: source .venv/bin/activate
+# choose a command accroding to your OS
+Windows: .venv\Scripts\activate
+macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
-# Windows: copy .env.example .env   
-# macOS/Linux: cp .env.example .env  
+# choose a command accroding to your OS
+Windows: copy .env.example .env   
+macOS/Linux: cp .env.example .env  
 
 # The backend now auto-creates tables on startup (handy for `flask run`).
 # If you ever want to (re)create tables explicitly, you can still run:
