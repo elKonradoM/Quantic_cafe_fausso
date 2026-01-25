@@ -44,7 +44,7 @@ Health check: `GET http://localhost:5000/api/health`
 ```bash
 cd ../frontend
 npm install
-npm install
+npm ci
 npm start
 ```
 
