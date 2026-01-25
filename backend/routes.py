@@ -1,63 +1,71 @@
 import random
 import re
+import math
 from datetime import datetime, timedelta, time
 
 from flask import Blueprint, jsonify, request, current_app
 from sqlalchemy.exc import IntegrityError
 
 from extensions import db
-from models import Customer, Reservation, NewsletterSubscription
+from models import Customer, Reservation
 
 api = Blueprint("api", __name__, url_prefix="/api")
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
-# Business hours:
+# Reservation rules
+SLOT_INTERVAL_MINUTES = 30
+RESERVATION_DURATION_MINUTES = 60
+SEATS_PER_TABLE = 4
+
+# Business hours (local, naive):
 # Mon–Thu 17:00–22:00
 # Fri–Sat 17:00–23:00
 # Sun     11:00–15:00
-#
-# Slot grid: 30 minutes
-# Reservation duration: 60 minutes
-RESERVATION_DURATION_MINUTES = 60
+def hours_for_weekday(weekday: int):
+    # Python datetime.weekday(): Mon=0..Sun=6
+    if weekday in (0, 1, 2, 3):     # Mon–Thu
+        return 17 * 60, 22 * 60
+    if weekday in (4, 5):           # Fri–Sat
+        return 17 * 60, 23 * 60
+    return 11 * 60, 15 * 60         # Sun
 
 
 def parse_time_slot(value: str) -> datetime:
-    # Parses ISO-like datetime string: 'YYYY-MM-DDTHH:MM'
+    """Parse a datetime-local style string: YYYY-MM-DDTHH:MM (seconds optional).
+    Returns a naive datetime (no timezone).
+    """
+    if not value:
+        raise ValueError("timeSlot is required")
+    v = value.strip()
+    # Accept "YYYY-MM-DD HH:MM" by normalizing to ISO
+    v = v.replace(" ", "T")
+    # Strip trailing 'Z' if present (some clients send it)
+    if v.endswith("Z"):
+        v = v[:-1]
     try:
-        return datetime.fromisoformat(value)
-    except Exception as e:
-        raise ValueError("Invalid timeSlot format. Use ISO like 2026-01-20T19:30") from e
+        dt = datetime.fromisoformat(v)
+    except ValueError:
+        raise ValueError("Invalid timeSlot format. Use YYYY-MM-DDTHH:MM.")
+    return dt.replace(second=0, microsecond=0)
 
 
-def validate_30_min_slot(dt: datetime) -> None:
-    # Enforce 30-minute slot boundaries (HH:00 or HH:30), no seconds/micros.
-    if dt.second != 0 or dt.microsecond != 0:
-        raise ValueError("timeSlot must be on a 30-minute boundary (HH:00 or HH:30)")
-    if dt.minute not in (0, 30):
-        raise ValueError("timeSlot must be on a 30-minute boundary (HH:00 or HH:30)")
+def validate_30_min_slot(dt: datetime):
+    if dt.minute not in (0, 30) or dt.second != 0 or dt.microsecond != 0:
+        raise ValueError("Please pick a slot on the half-hour (HH:00 or HH:30).")
 
 
-def opening_hours_for_date(d: datetime):
-    # Python weekday(): Mon=0 ... Sun=6
-    wd = d.weekday()
-    if wd in (0, 1, 2, 3):  # Mon–Thu
-        return time(17, 0), time(22, 0)
-    if wd in (4, 5):  # Fri–Sat
-        return time(17, 0), time(23, 0)
-    return time(11, 0), time(15, 0)  # Sun
+def validate_opening_hours(start_dt: datetime):
+    open_min, close_min = hours_for_weekday(start_dt.weekday())
 
+    open_dt = datetime.combine(start_dt.date(), time(hour=open_min // 60, minute=open_min % 60))
+    close_dt = datetime.combine(start_dt.date(), time(hour=close_min // 60, minute=close_min % 60))
 
-def validate_opening_hours(start: datetime) -> None:
-    # Enforce business hours + 60-minute duration within the same day.
-    open_t, close_t = opening_hours_for_date(start)
-    open_dt = start.replace(hour=open_t.hour, minute=open_t.minute, second=0, microsecond=0)
-    close_dt = start.replace(hour=close_t.hour, minute=close_t.minute, second=0, microsecond=0)
-    end_time = start + timedelta(minutes=RESERVATION_DURATION_MINUTES)
+    end_dt = start_dt + timedelta(minutes=RESERVATION_DURATION_MINUTES)
 
-    if start < open_dt:
-        raise ValueError("Outside opening hours for that day.")
-    if end_time > close_dt:
+    if start_dt < open_dt:
+        raise ValueError("Outside opening hours for that day (before opening).")
+    if end_dt > close_dt:
         raise ValueError("Outside opening hours for that day (end time exceeds closing).")
 
 
@@ -72,8 +80,9 @@ def overlap_slots_60min(start: datetime):
 
 def get_free_tables_for_start(time_slot: datetime):
     # Returns (free_tables, table_count) for a requested start time considering 60-min duration.
-    table_count = int(current_app.config["TABLE_COUNT"])
+    table_count = int(current_app.config.get("TABLE_COUNT", 30))
     all_tables = list(range(1, table_count + 1))
+
     reserved = (
         db.session.query(Reservation.table_number)
         .filter(Reservation.time_slot.in_(overlap_slots_60min(time_slot)))
@@ -87,14 +96,14 @@ def get_free_tables_for_start(time_slot: datetime):
 def validate_reservation_payload(payload: dict):
     required = ["timeSlot", "guests", "name", "email"]
     for k in required:
-        if k not in payload or payload[k] in (None, ""):
-            return f"Missing required field: {k}"
+        if k not in payload:
+            return f"{k} is required"
 
+    # guests
     try:
         guests = int(payload["guests"])
     except Exception:
-        return "guests must be a positive integer"
-
+        return "guests must be an integer"
     if guests <= 0:
         return "guests must be a positive integer"
 
@@ -108,41 +117,61 @@ def validate_reservation_payload(payload: dict):
     return None
 
 
-@api.get("/health")
-def health():
-    return jsonify({"ok": True})
-
-
 @api.post("/newsletter")
-def newsletter_subscribe():
+def newsletter_signup():
+    """
+    Newsletter signup is stored on Customer only:
+      - upsert by email
+      - sets newsletter_signup=True
+      - optionally updates name (if provided)
+    """
     data = request.get_json(silent=True) or {}
-    email = str(data.get("email") or "").strip().lower()
-    name = str(data.get("name") or "").strip() or None
+    email = (data.get("email") or "").strip().lower()
+    name = (data.get("name") or "").strip() or None
 
     if not email:
         return jsonify({"ok": False, "message": "email is required"}), 400
     if not EMAIL_RE.match(email):
         return jsonify({"ok": False, "message": "email is invalid"}), 400
 
-    sub = NewsletterSubscription.query.filter_by(email=email).first()
-    if sub:
-        if name and (sub.name or "") != name:
-            sub.name = name
-            db.session.commit()
-        return jsonify({"ok": True, "message": "You're already subscribed."})
+    customer = Customer.query.filter_by(email=email).first()
 
-    sub = NewsletterSubscription(email=email, name=name)
-    db.session.add(sub)
+    if not customer:
+        customer = Customer(email=email, name=name, newsletter_signup=True)
+        db.session.add(customer)
+        db.session.commit()
+        return jsonify({"ok": True, "message": "Subscribed. Welcome to the (totally real) newsletter."})
+
+    # existing customer
+    already = bool(customer.newsletter_signup)
+    customer.newsletter_signup = True
+
+    if name and (customer.name or "") != name:
+        customer.name = name
+
     db.session.commit()
 
+    if already:
+        return jsonify({"ok": True, "message": "You're already subscribed."})
     return jsonify({"ok": True, "message": "Subscribed. Welcome to the (totally real) newsletter."})
 
 
 @api.get("/reservations/availability")
 def reservation_availability():
     time_slot_raw = (request.args.get("timeSlot") or "").strip()
+    guests_raw = (request.args.get("guests") or "").strip()
+
     if not time_slot_raw:
         return jsonify({"ok": False, "message": "Missing required query param: timeSlot"}), 400
+
+    guests = 1
+    if guests_raw:
+        try:
+            guests = int(guests_raw)
+        except ValueError:
+            return jsonify({"ok": False, "message": "guests must be an integer"}), 400
+        if guests <= 0:
+            return jsonify({"ok": False, "message": "guests must be a positive integer"}), 400
 
     try:
         time_slot = parse_time_slot(time_slot_raw)
@@ -152,15 +181,18 @@ def reservation_availability():
         return jsonify({"ok": False, "message": str(e)}), 400
 
     free_tables, table_count = get_free_tables_for_start(time_slot)
+    tables_needed = max(1, math.ceil(guests / SEATS_PER_TABLE))
 
     return jsonify({
         "ok": True,
         "timeSlot": time_slot.isoformat(timespec="minutes"),
         "endTime": (time_slot + timedelta(minutes=RESERVATION_DURATION_MINUTES)).isoformat(timespec="minutes"),
         "durationMinutes": RESERVATION_DURATION_MINUTES,
+        "seatsPerTable": SEATS_PER_TABLE,
+        "tablesNeeded": tables_needed,
         "tableCount": table_count,
         "availableTables": len(free_tables),
-        "fullyBooked": len(free_tables) == 0,
+        "fullyBooked": len(free_tables) < tables_needed,
     })
 
 
@@ -181,49 +213,82 @@ def create_reservation():
     guests = int(data["guests"])
     name = str(data["name"]).strip()
     email = str(data["email"]).strip().lower()
-    phone = (data.get("phone") or "").strip() or None  # optional
+    phone = (str(data.get("phone") or "").strip() or None)
 
+    table_count = int(current_app.config.get("TABLE_COUNT", 30))
+    max_guests = table_count * SEATS_PER_TABLE
+    if guests > max_guests:
+        return jsonify({
+            "ok": False,
+            "message": f"Too many guests for the restaurant capacity. Max for a single timeslot is {max_guests}."
+        }), 400
+
+    tables_needed = max(1, math.ceil(guests / SEATS_PER_TABLE))
+
+    # Upsert customer
     customer = Customer.query.filter_by(email=email).first()
     if not customer:
-        customer = Customer(email=email, name=name)
+        customer = Customer(email=email, name=name, phone=phone, newsletter_signup=False)
         db.session.add(customer)
-        db.session.commit()
+        db.session.flush()
     else:
         if name and (customer.name or "") != name:
             customer.name = name
-            db.session.commit()
+        if phone and (customer.phone or "") != phone:
+            customer.phone = phone
 
-    max_retries = 3
+    # Retry loop for concurrency: if another request books between check and insert
+    max_retries = 5
     for attempt in range(max_retries):
         free_tables, _ = get_free_tables_for_start(time_slot)
-
-        if not free_tables:
-            db.session.rollback()
+        if len(free_tables) < tables_needed:
             return jsonify({
                 "ok": False,
-                "message": "This time slot is fully booked. Please choose another time."
+                "message": "That slot is fully booked for your party size. Please choose another time.",
+                "tablesNeeded": tables_needed,
+                "availableTables": len(free_tables),
+                "seatsPerTable": SEATS_PER_TABLE,
             }), 409
 
-        table_number = random.choice(free_tables)
+        tables_to_use = random.sample(free_tables, k=tables_needed)
 
-        reservation = Reservation(
-            customer_id=customer.id,
-            time_slot=time_slot,
-            table_number=table_number,
-            guests=guests,
-        )
+        remaining = guests
+        reservations = []
+        for tnum in tables_to_use:
+            g = min(SEATS_PER_TABLE, remaining)
+            remaining -= g
+            reservations.append(Reservation(
+                customer_id=customer.id,
+                time_slot=time_slot,
+                table_number=tnum,
+                guests=g,
+            ))
 
         try:
-            db.session.add(reservation)
+            for r in reservations:
+                db.session.add(r)
             db.session.commit()
+
+            n_tables = len(tables_to_use)
+            table_word = "table" if n_tables == 1 else "tables"
+            tables_csv = ", ".join(str(t) for t in sorted(tables_to_use))
+            message = (
+                f"Reservation confirmed. Reserved {n_tables} {table_word} "
+                f"({tables_csv}) for {guests} guest(s)."
+            )
             return jsonify({
                 "ok": True,
-                "message": "Reservation confirmed.",
-                "tableNumber": table_number,
+                "message": message,
+                "tablesBooked": len(tables_to_use),
+                "tableNumbers": sorted(tables_to_use),
+                # backward compatible consumers
+                "tableNumber": sorted(tables_to_use)[0] if tables_to_use else None,
                 "timeSlot": time_slot.isoformat(timespec="minutes"),
                 "endTime": (time_slot + timedelta(minutes=RESERVATION_DURATION_MINUTES)).isoformat(timespec="minutes"),
                 "durationMinutes": RESERVATION_DURATION_MINUTES,
                 "guests": guests,
+                "seatsPerTable": SEATS_PER_TABLE,
+                "tablesNeeded": tables_needed,
             })
         except IntegrityError:
             db.session.rollback()

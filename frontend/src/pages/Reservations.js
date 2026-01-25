@@ -110,7 +110,7 @@ export default function Reservations() {
   const [form, setForm] = useState({
     date: "",
     time: "",
-    guests: 2,
+    guests: "",
     name: "",
     email: "",
     phone: "",
@@ -148,6 +148,7 @@ export default function Reservations() {
 
   const timeSlot = composeTimeSlot(form.date, form.time);
 
+  
   function validate() {
     if (!form.date) return "Please choose a date.";
     if (!form.time) return "Please choose a time.";
@@ -168,7 +169,9 @@ export default function Reservations() {
 
       setChecking(true);
       try {
-        const qs = new URLSearchParams({ timeSlot }).toString();
+        const params = { timeSlot };
+      if (form.guests) params.guests = String(form.guests);
+      const qs = new URLSearchParams(params).toString();
         const r = await fetch(`/api/reservations/availability?${qs}`);
         const data = await r.json().catch(() => ({}));
         if (cancelled) return;
@@ -185,7 +188,7 @@ export default function Reservations() {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [timeSlot]);
+  }, [timeSlot, form.guests]);
 
   async function submit(e) {
     e.preventDefault();
@@ -215,6 +218,8 @@ export default function Reservations() {
         ok: true,
         message: res.data.message,
         tableNumber: res.data.tableNumber,
+        tableNumbers: res.data.tableNumbers,
+        tablesBooked: res.data.tablesBooked,
         endTime: res.data.endTime,
       });
     } else {
@@ -288,7 +293,7 @@ export default function Reservations() {
                   type="number"
                   min="1"
                   value={form.guests}
-                  onChange={(e) => setField("guests", Number(e.target.value))}
+                  onChange={(e) => setField("guests", e.target.value === "" ? "" : e.target.value)}
                 />
               </label>
 
@@ -331,10 +336,9 @@ export default function Reservations() {
                 <div className="alert" style={{ marginTop: 12 }}>
                   {result.ok ? (
                     <>
-                      <b>Confirmed.</b> {result.message}
+                      <b>Success.</b> {result.message}
                       <br />
                       <span className="help">
-                        Assigned table: <b>{result.tableNumber}</b>
                         {result.endTime ? (
                           <>
                             {" — "}Ends at <b>{String(result.endTime).slice(11, 16)}</b>
@@ -344,7 +348,7 @@ export default function Reservations() {
                     </>
                   ) : (
                     <>
-                      <b>Not confirmed.</b> {result.message}
+                      <b>Failed, not confirmed.</b> {result.message}
                     </>
                   )}
                 </div>
